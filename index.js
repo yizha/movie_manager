@@ -25,6 +25,20 @@ exports.listRemovedMovies = function(callback) {
     exports.listMovies(REMOVED_MV, callback);
 }
 
+exports.loadMovie = function(key, callback) {
+    client.hgetall(key, function(err, movie) {
+        if (callback) {
+            var reply = null;
+            if (err) {
+                reply = {'success': false, 'error': err, 'movie': {}};
+            } else {
+                reply = {'success': false, 'movie': to_frontend_movie(movie)};
+            }
+            callback(reply);
+        }
+    });
+}
+
 exports.listMovies = function(key, callback) {
     var client = this.client;
     client.smembers(key, function(err, keys) {
@@ -37,17 +51,19 @@ exports.listMovies = function(key, callback) {
                     multi.hgetall(keys[i]);
                 }
                 multi.exec(function(err, movies) {
-                    var reply = null;
-                    if (err) {
-                        reply = {'success': false, 'error': err, 'movies': []};
-                    } else {
-                        movies = to_frontend_movies(movies);
-                        movies.sort(function(a, b) {
-                            return a.filename.localeCompare(b.filename);
-                        });
-                        reply = {'success': true, 'movies': movies};
+                    if (callback) {
+                        var reply = null;
+                        if (err) {
+                            reply = {'success': false, 'error': err, 'movies': []};
+                        } else {
+                            movies = to_frontend_movies(movies);
+                            movies.sort(function(a, b) {
+                                return a.filename.localeCompare(b.filename);
+                            });
+                            reply = {'success': true, 'movies': movies};
+                        }
+                        callback(reply);
                     }
-                    if (callback) callback(reply);
                 });
             }
         }
@@ -187,12 +203,17 @@ function createMovieObj(filepath, avail) {
 function to_frontend_movies(movies) {
     if (movies && movies.length && movies.length > 0) {
         for (var i = 0; i < movies.length; i++) {
-            delete movies[i]['fullpath'];
+            movies[i] = to_frontend_movie(movies[i]);
         }
         return movies;
     } else {
         return [];
     }
+}
+
+function to_frontend_movie(m) {
+    delete m['fullpath'];
+    return m;
 }
 
 var monitor = function(dir) {
