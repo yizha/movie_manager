@@ -163,6 +163,7 @@ function getHash(Str) {
 
 function createMovieObj(filepath, avail) {
     var m = {};
+    m['hash'] = getHash(filepath);
     m['fullpath'] = filepath;
     m['filename'] = path.basename(filepath);
     m['available'] = avail;
