@@ -35,7 +35,18 @@ exports.listMovies = function(key, callback) {
                 for (var i = 0; i < keys.length; i++) {
                     multi.hgetall(keys[i]);
                 }
-                multi.exec(callback);
+                multi.exec(function(err, movies) {
+                    var reply = null;
+                    if (err) {
+                        reply = {'success': false, 'error': err, 'movies': []};
+                    } else {
+                        movies.sort(function(a, b) {
+                            return a.filename.localeCompare(b.filename);
+                        });
+                        reply = {'success': true, 'movies': movies};
+                    }
+                    if (callback) callback(reply);
+                });
             }
         }
     });
