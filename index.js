@@ -33,13 +33,14 @@ exports.listMovies = function(key, callback) {
             if (keys && util.isArray(keys) && keys.length > 0) {
                 var multi = client.multi();
                 for (var i = 0; i < keys.length; i++) {
-                    multi.hgetall(keys[i]);
+                    multi.hmget(keys[i], _movie_props_for_frontend);
                 }
-                multi.exec(function(err, movies) {
+                multi.exec(function(err, data) {
                     var reply = null;
                     if (err) {
                         reply = {'success': false, 'error': err, 'movies': []};
                     } else {
+                        var movies = to_frontend_movies_from_hmget(data);
                         movies.sort(function(a, b) {
                             return a.filename.localeCompare(b.filename);
                         });
@@ -181,6 +182,18 @@ function createMovieObj(filepath, avail) {
     return m;
 }
 
+var _movie_props_for_frontend = ['hash', 'filename', 'available'];
+function to_frontend_movies_from_hmget(data) {
+    if (data && data.length && data.length > 0) {
+        var movies = [];
+        for (var i = 0; i < data.length; i++) {
+            movies[movies.length] = {'hash':data[i][0], 'filename':data[i][1], 'available':data[i][2]};
+        }
+        return movies;
+    } else {
+        return [];
+    }
+}
 
 var monitor = function(dir) {
     if (!path.existsSync(dir)) {
