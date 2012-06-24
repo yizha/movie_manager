@@ -2,15 +2,131 @@ var crypto = require('crypto'),
     path = require('path'),
     util = require('util'),
     fs = require('fs'),
+    http = require('http'),
+    url = require('url'),
+    qs = require('querystring'),
+    child_proc = require('child_process');
     redis = require('redis');
 
 var ALL_MV = 'all_movies',
     AVAIL_MV = 'available_movies',
     REMOVED_MV = 'removed_movies';
 
+var IMDB_API = "www.imdbapi.com";
 
 exports.connect = function(host, port, options) {
     this.client = redis.createClient(host, port, options);
+}
+
+exports.downloadPoster = function(hash, imageUrl, savepath) {
+    var urlObj = url.parse(imageUrl);
+    var client = this.client;
+    http.get({'host': urlObj.host, 'path': urlObj.path}, function(res) {
+        var wstream = res.pipe(fs.createWriteStream(savepath));
+        wstream.on('close', function() {
+            client.hset(hash, 'poster_image', path.basename(savepath));
+        });
+    });
+}
+
+exports.updateContentInfo = function(hash, force) {
+    var client = this.client;
+    client.hget(hash, 'content', function(err, reply) {
+        if (err) {
+            console.warn('fail to get "content" for ' + hash + ', err=' + util.inspect(err));
+        } else {
+            if (force || reply == null) {
+                loadContentInfo(client, hash);
+            } else {
+                console.info('skipping loading content for ' + hash + ' as it is already there!');
+            }   
+        }   
+    });
+}
+
+function loadContentInfo(client, hash) {
+    client.hget(hash, 'fullpath', function(err, fullpath) {
+        if (err) {
+            console.warn('fail to get fullpath for ' + hash + ', err=' + util.inspect(err));
+        } else {
+            var cmd = '/usr/bin/du -sk *; /usr/bin/du -sk .';
+            var options = {'cwd': fullpath};
+            child_proc.exec(cmd, options, function(err, stdout, stderr) {
+                if (err != null) {
+                    console.warn('fail to run du for ' + fullpath + ', err=' + util.inspect(err));
+                } else {
+                    var content = to_content_obj(stdout.toString());
+                    client.hset(hash, 'content', JSON.stringify(content));
+                }
+            });
+        }
+    });
+}
+
+function to_content_obj(output) {
+    var lines = output.split('\n');
+    var content = [];
+    var totalSize = 0;
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (line && line.length && line.length > 0) {
+            var info = line.split('\t');
+            var size = info[0];
+            var file = info[1];
+            if (file == '.') {
+                totalSize = size;
+            } else {
+                content[content.length] = {'file': file, 'size': size};
+            }
+        }
+    }
+    return {'content': content, 'size': totalSize};
+}
+
+exports.updateIMDBInfo = function(hash, title, image_save_root, force) {
+    var client = this.client;
+    client.hget(hash, 'imdb', function(err, reply) {
+        if (err) {
+            console.warn('fail to get "imdb" for ' + hash + ', err=' + util.inspect(err));
+        } else {
+            if (force || reply == null) {
+                loadIMDBInfo(client, hash, title, image_save_root);
+            } else {
+                console.info('skipping loading imdb for ' + hash + ' as it is already there!');
+            }
+        }
+    });
+}
+
+function loadIMDBInfo(client, hash, title, image_save_root) {
+    var options = {
+        host: 'www.imdbapi.com',
+        path: '/?' + qs.stringify({'t': title})
+    };
+    http.get(options, function(res) {
+        if (res.statusCode == 200) {
+            res.setEncoding('utf8');
+            res.on('data', function(chunk) {
+                var data = JSON.parse(chunk);
+                if (data 
+                    && data.Response 
+                    && data.Response.toString().toLowerCase() == 'true') {
+                        client.hset(hash, 'imdb', JSON.stringify(data), function(err, reply) {
+                            if (err) {
+                            } else {
+                                var poster = data['Poster'];
+                                if (poster && typeof poster == 'string' 
+                                    && poster.indexOf('http://') == 0) {
+                                    exports.downloadPoster(hash, 
+                                        poster, 
+                                        path.join(image_save_root, hash + path.extname(poster)));
+                                }
+                            }
+                        });
+                    }
+            });
+        }
+    }); 
 }
 
 exports.listAllMovies = function(callback) {
