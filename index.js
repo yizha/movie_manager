@@ -329,6 +329,12 @@ function to_frontend_movies(movies) {
 
 function to_frontend_movie(m) {
     delete m['fullpath'];
+    if (m['content']) {
+        m['content'] = JSON.parse(m['content']);
+    }
+    if (m['imdb']) {
+        m['imdb'] = JSON.parse(m['imdb']);
+    }
     return m;
 }
 
