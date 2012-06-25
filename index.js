@@ -18,33 +18,58 @@ exports.connect = function(host, port, options) {
     this.client = redis.createClient(host, port, options);
 }
 
-exports.downloadPoster = function(hash, imageUrl, savepath) {
+exports.removeField = function(hash, field, callback) {
+    var client = this.client;
+    client.hdel(hash, field, function(err, reply) {
+        if (callback) {
+            if (err) {
+                reply = {'success': false, 'error': err};
+            } else {
+                reply = {'success': false};
+            }
+            callback(reply);
+        }
+    });
+}
+
+exports.setField = function(hash, field, value, callback) {
+    var client = this.client;
+    client.hset(hash, field, value, function(err, reply) {
+        if (callback) {
+            var reply = null;
+            if (err) {
+                reply = {'success': false, 'error': err};
+            } else {
+                reply = {'success': false};
+            }   
+            callback(reply);
+        }
+    });
+}
+
+exports.downloadPoster = function(hash, imageUrl, savepath, callback) {
     var urlObj = url.parse(imageUrl);
     var client = this.client;
     http.get({'host': urlObj.host, 'path': urlObj.path}, function(res) {
         var wstream = res.pipe(fs.createWriteStream(savepath));
         wstream.on('close', function() {
-            client.hset(hash, 'poster_image', path.basename(savepath));
+            client.hset(hash, 'poster_image', path.basename(savepath), function(err, reply) {
+                if (callback) {
+                    var reply = null;
+                    if (err) {
+                        reply = {'success': false, 'error': err};
+                    } else {
+                        reply = {'success': false};
+                    }
+                    callback(reply);
+                }
+            });
         });
     });
 }
 
-exports.updateContentInfo = function(hash, force) {
+exports.loadFilesAndSize = function(hash, callback) {
     var client = this.client;
-    client.hget(hash, 'content', function(err, reply) {
-        if (err) {
-            console.warn('fail to get "content" for ' + hash + ', err=' + util.inspect(err));
-        } else {
-            if (force || reply == null) {
-                loadContentInfo(client, hash);
-            } else {
-                console.info('skipping loading content for ' + hash + ' as it is already there!');
-            }   
-        }   
-    });
-}
-
-function loadContentInfo(client, hash) {
     client.hget(hash, 'fullpath', function(err, fullpath) {
         if (err) {
             console.warn('fail to get fullpath for ' + hash + ', err=' + util.inspect(err));
@@ -56,7 +81,17 @@ function loadContentInfo(client, hash) {
                     console.warn('fail to run du for ' + fullpath + ', err=' + util.inspect(err));
                 } else {
                     var content = to_content_obj(stdout.toString());
-                    client.hset(hash, 'content', JSON.stringify(content));
+                    client.hset(hash, 'content', JSON.stringify(content), function(err, reply) {
+                        if (callback) {
+                            var reply = null;
+                            if (err) {
+                                reply = {'success': false, 'error': err};
+                            } else {
+                                reply = {'success': false};
+                            }
+                            callback(reply);
+                        }    
+                    });
                 }
             });
         }
@@ -65,7 +100,7 @@ function loadContentInfo(client, hash) {
 
 function to_content_obj(output) {
     var lines = output.split('\n');
-    var content = [];
+    var files = [];
     var totalSize = 0;
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i].trim();
@@ -76,32 +111,18 @@ function to_content_obj(output) {
             if (file == '.') {
                 totalSize = size;
             } else {
-                content[content.length] = {'file': file, 'size': size};
+                files[files.length] = {'file': file, 'size': size};
             }
         }
     }
-    return {'content': content, 'size': totalSize};
+    return {'files': files, 'size': totalSize};
 }
 
-exports.updateIMDBInfo = function(hash, title, image_save_root, force) {
+exports.setIMDB = function(hash, qsObj, image_save_root, callback) {
     var client = this.client;
-    client.hget(hash, 'imdb', function(err, reply) {
-        if (err) {
-            console.warn('fail to get "imdb" for ' + hash + ', err=' + util.inspect(err));
-        } else {
-            if (force || reply == null) {
-                loadIMDBInfo(client, hash, title, image_save_root);
-            } else {
-                console.info('skipping loading imdb for ' + hash + ' as it is already there!');
-            }
-        }
-    });
-}
-
-function loadIMDBInfo(client, hash, title, image_save_root) {
     var options = {
         host: 'www.imdbapi.com',
-        path: '/?' + qs.stringify({'t': title})
+        path: '/?' + qs.stringify(qsObj)
     };
     http.get(options, function(res) {
         if (res.statusCode == 200) {
@@ -119,7 +140,7 @@ function loadIMDBInfo(client, hash, title, image_save_root) {
                                     && poster.indexOf('http://') == 0) {
                                     exports.downloadPoster(hash, 
                                         poster, 
-                                        path.join(image_save_root, hash + path.extname(poster)));
+                                        path.join(image_save_root, hash + path.extname(poster)), callback);
                                 }
                             }
                         });
@@ -142,6 +163,7 @@ exports.listRemovedMovies = function(callback) {
 }
 
 exports.loadMovie = function(key, callback) {
+    var client = this.client;
     client.hgetall(key, function(err, movie) {
         if (callback) {
             var reply = null;
@@ -335,6 +357,7 @@ function to_frontend_movie(m) {
     }
     if (m['imdb']) {
         m['imdb'] = JSON.parse(m['imdb']);
+        delete m['imdb']['Response'];
     }
     return m;
 }
