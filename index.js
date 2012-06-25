@@ -187,9 +187,9 @@ exports.listMovies = function(key, callback) {
 }
 
 exports.addMovie = function(filepath) {
-    var key = getHash(filepath);
     var m = createMovieObj(filepath, true);
     if (m) {
+        var key = m.hash;
         var client = this.client;
         client.hmset(key, m, function(err, reply) {
             if (err == null && reply.toString().toUpperCase() == 'OK') {
@@ -204,9 +204,9 @@ exports.addMovie = function(filepath) {
 }
 
 exports.removeMovie = function(filepath) {
-    var key = getHash(filepath);
     var m = createMovieObj(filepath, false);
     if (m) {
+        var key = m.hash;
         var client = this.client;
         client.hmset(key, m, function(err, reply) {
             if (err == null && reply.toString().toUpperCase() == 'OK') {
@@ -235,9 +235,9 @@ exports.loadMovieFromDir = function(dir) {
     var keys = [];
     for (var i = 0; i < files.length; i++) {
         var filepath = files[i];
-        var key = getHash(filepath);
-        keys[keys.length] = key;
         var m = createMovieObj(filepath, true);
+        var key = m.hash;
+        keys[keys.length] = key;
         multi.hmset(key, m);
     }
     multi.exec(function(err, replies) {
@@ -307,10 +307,11 @@ function getHash(Str) {
 }
 
 function createMovieObj(filepath, avail) {
+    var filename = path.basename(filepath);
     var m = {};
-    m['hash'] = getHash(filepath);
+    m['hash'] = getHash(filename);
     m['fullpath'] = filepath;
-    m['filename'] = path.basename(filepath);
+    m['filename'] = filename;
     m['available'] = avail;
     return m;
 }
