@@ -53,7 +53,7 @@ exports.downloadPoster = function(hash, imageUrl, savepath, callback) {
     http.get({'host': urlObj.host, 'path': urlObj.path}, function(res) {
         var wstream = res.pipe(fs.createWriteStream(savepath));
         wstream.on('close', function() {
-            client.hset(hash, 'poster_image', path.basename(savepath), function(err, reply) {
+            client.hset(hash, 'poster_image', imageUrl, function(err, reply) {
                 if (callback) {
                     var reply = null;
                     if (err) {
