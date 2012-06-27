@@ -24,6 +24,105 @@ function getMovieKey(hash) {
     return 'movie:' + hash;
 }
 
+function getMovieUserKey(hash) {
+    return 'movie:' + hash + ':user';
+}
+
+function getUserMovieKey(user) {
+    return 'user:' + user + ':movie';
+}
+
+exports.markUserMovie = function(user, hash, mark, callback) {
+    var client = this.client;
+    var cmd = (mark.toLowerCase() == 'true' ? 'sadd' : 'srem');
+    var multi = client.multi([
+            [cmd, getMovieUserKey(hash), user],
+            [cmd, getUserMovieKey(user), hash]
+        ]).exec(function(err, reply) {
+            if (callback) {
+                if (err) {
+                    reply = {'success': false, 'error': err};
+                } else {
+                    reply = {'success': true};
+                }
+                callback(reply);
+            }
+        });
+}
+
+exports.allUsers = function(callback) {
+    var client = this.client;
+    client.keys('user:*', function(err, users) {
+        if (callback) {
+            if (err) {
+                reply = {'success': false, 'error': err, 'users': []};
+            } else {
+                var usernames = [];
+                if (users && users instanceof Array && users.length > 0) {
+                    for (var i = 0; i < users.length; i++) {
+                        // user:dingyc:movies
+                        var user = users[i];
+                        var start = user.indexOf(':');
+                        var end = user.lastIndexOf(':');
+                        usernames[usernames.length] = user.substring(start + 1, end);
+                    }
+                }
+                reply = {'success': true, 'users': usernames};
+            }
+            callback(reply);
+        }
+    });
+}
+
+exports.loadMovieFilenames = function(hashes, callback) {
+    var client = this.client;
+    var multi = client.multi();
+    for (var i = 0; i < hashes.length; i++) {
+        multi.hget(getMovieKey(hashes[i]), 'filename');
+    }
+    multi.exec(function(err, filenames) {
+        if (callback) {
+            if (err) {
+                reply = {'success': false, 'error': err, 'filenames': []};
+            } else {
+                reply = {'success': true, 'filenames': filenames};
+            }
+            callback(reply);
+        }
+    });
+}
+
+exports.loadUserMovies = function(user, callback) {
+    var client = this.client;
+    client.smembers(getUserMovieKey(user), function(err, hashes) {
+        if (callback) {
+            if (err) {
+                reply = {'success': false, 'error': err, 'hashes': []};
+            } else {
+                reply = {'success': true, 'hashes': hashes};
+            }
+            callback(reply);
+        }
+    });
+}
+
+exports.loadMovieUsers = function(hash, callback) {
+    var client = this.client;
+    var multi = client.multi();
+    multi.hget(getMovieKey(hash), 'filename');
+    multi.smembers(getMovieUserKey(hash));
+    multi.exec(function(err, reply) {
+        if (callback) {
+            if (err) {
+                reply = {'success': false, 'error': err, 'filename': null, users: []};
+            } else {
+                reply = {'success': true, 'filename':reply[0], 'users': reply[1]};
+            }
+            callback(reply);
+        }
+    });
+}
+
 exports.removeField = function(hash, field, callback) {
     var client = this.client;
     var key = getMovieKey(hash);
@@ -32,7 +131,7 @@ exports.removeField = function(hash, field, callback) {
             if (err) {
                 reply = {'success': false, 'error': err};
             } else {
-                reply = {'success': false};
+                reply = {'success': true};
             }
             callback(reply);
         }
@@ -48,7 +147,7 @@ exports.setField = function(hash, field, value, callback) {
             if (err) {
                 reply = {'success': false, 'error': err};
             } else {
-                reply = {'success': false};
+                reply = {'success': true};
             }   
             callback(reply);
         }
@@ -68,7 +167,7 @@ exports.downloadPoster = function(hash, imageUrl, savepath, callback) {
                     if (err) {
                         reply = {'success': false, 'error': err};
                     } else {
-                        reply = {'success': false};
+                        reply = {'success': true};
                     }
                     callback(reply);
                 }
@@ -183,7 +282,7 @@ exports.loadMovie = function(hash, callback) {
             if (err) {
                 reply = {'success': false, 'error': err, 'movie': {}};
             } else {
-                reply = {'success': false, 'movie': to_frontend_movie(movie)};
+                reply = {'success': true, 'movie': to_frontend_movie(movie)};
             }
             callback(reply);
         }
