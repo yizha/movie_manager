@@ -8,19 +8,26 @@ var crypto = require('crypto'),
     child_proc = require('child_process');
     redis = require('redis');
 
-var ALL_MV = 'all_movies',
-    AVAIL_MV = 'available_movies',
-    REMOVED_MV = 'removed_movies';
-
-var IMDB_API = "www.imdbapi.com";
+var ALL_MV = 'all',
+    AVAIL_MV = 'available',
+    REMOVED_MV = 'removed';
 
 exports.connect = function(host, port, options) {
     this.client = redis.createClient(host, port, options);
 }
 
+function getMoviesKey(type) {
+    return 'movies:' + type;
+}
+
+function getMovieKey(hash) {
+    return 'movie:' + hash;
+}
+
 exports.removeField = function(hash, field, callback) {
     var client = this.client;
-    client.hdel(hash, field, function(err, reply) {
+    var key = getMovieKey(hash);
+    client.hdel(key, field, function(err, reply) {
         if (callback) {
             if (err) {
                 reply = {'success': false, 'error': err};
@@ -34,7 +41,8 @@ exports.removeField = function(hash, field, callback) {
 
 exports.setField = function(hash, field, value, callback) {
     var client = this.client;
-    client.hset(hash, field, value, function(err, reply) {
+    var key = getMovieKey(hash);
+    client.hset(key, field, value, function(err, reply) {
         if (callback) {
             var reply = null;
             if (err) {
@@ -53,7 +61,8 @@ exports.downloadPoster = function(hash, imageUrl, savepath, callback) {
     http.get({'host': urlObj.host, 'path': urlObj.path}, function(res) {
         var wstream = res.pipe(fs.createWriteStream(savepath));
         wstream.on('close', function() {
-            client.hset(hash, 'poster_image', imageUrl, function(err, reply) {
+            var key = getMovieKey(hash);
+            client.hset(key, 'poster_image', imageUrl, function(err, reply) {
                 if (callback) {
                     var reply = null;
                     if (err) {
@@ -70,7 +79,8 @@ exports.downloadPoster = function(hash, imageUrl, savepath, callback) {
 
 exports.loadFilesAndSize = function(hash, callback) {
     var client = this.client;
-    client.hget(hash, 'fullpath', function(err, fullpath) {
+    var key = getMovieKey(hash);
+    client.hget(key, 'fullpath', function(err, fullpath) {
         if (err) {
             console.warn('fail to get fullpath for ' + hash + ', err=' + util.inspect(err));
         } else {
@@ -81,13 +91,14 @@ exports.loadFilesAndSize = function(hash, callback) {
                     console.warn('fail to run du for ' + fullpath + ', err=' + util.inspect(err));
                 } else {
                     var content = to_content_obj(stdout.toString());
-                    client.hset(hash, 'content', JSON.stringify(content), function(err, reply) {
+                    var key = getMovieKey(hash);
+                    client.hset(key, 'content', JSON.stringify(content), function(err, reply) {
                         if (callback) {
                             var reply = null;
                             if (err) {
                                 reply = {'success': false, 'error': err};
                             } else {
-                                reply = {'success': false};
+                                reply = {'success': true};
                             }
                             callback(reply);
                         }    
@@ -132,7 +143,8 @@ exports.setIMDB = function(hash, qsObj, image_save_root, callback) {
                 if (data 
                     && data.Response 
                     && data.Response.toString().toLowerCase() == 'true') {
-                        client.hset(hash, 'imdb', JSON.stringify(data), function(err, reply) {
+                        var key = getMovieKey(hash);
+                        client.hset(key, 'imdb', JSON.stringify(data), function(err, reply) {
                             if (err) {
                             } else {
                                 var poster = data['Poster'];
@@ -162,8 +174,9 @@ exports.listRemovedMovies = function(callback) {
     exports.listMovies(REMOVED_MV, callback);
 }
 
-exports.loadMovie = function(key, callback) {
+exports.loadMovie = function(hash, callback) {
     var client = this.client;
+    var key = getMovieKey(hash);
     client.hgetall(key, function(err, movie) {
         if (callback) {
             var reply = null;
@@ -177,16 +190,16 @@ exports.loadMovie = function(key, callback) {
     });
 }
 
-exports.listMovies = function(key, callback) {
+exports.listMovies = function(type, callback) {
     var client = this.client;
-    client.smembers(key, function(err, keys) {
+    var key = getMoviesKey(type);
+    client.smembers(key, function(err, hashes) {
         if (err) {
         } else {
-            if (keys && util.isArray(keys) && keys.length > 0) {
+            if (hashes && util.isArray(hashes) && hashes.length > 0) {
                 var multi = client.multi();
-                for (var i = 0; i < keys.length; i++) {
-                    //multi.hmget(keys[i], _movie_props_for_frontend);
-                    multi.hgetall(keys[i]);
+                for (var i = 0; i < hashes.length; i++) {
+                    multi.hgetall(getMovieKey(hashes[i]));
                 }
                 multi.exec(function(err, movies) {
                     if (callback) {
@@ -211,14 +224,14 @@ exports.listMovies = function(key, callback) {
 exports.addMovie = function(filepath) {
     var m = createMovieObj(filepath, true);
     if (m) {
-        var key = m.hash;
+        var key = getMovieKey(m.hash);
         var client = this.client;
         client.hmset(key, m, function(err, reply) {
             if (err == null && reply.toString().toUpperCase() == 'OK') {
                 client.multi([
-                    ['sadd', ALL_MV, key],
-                    ['sadd', AVAIL_MV, key],
-                    ['srem', REMOVED_MV, key]
+                    ['sadd', getMoviesKey(ALL_MV), m.hash],
+                    ['sadd', getMoviesKey(AVAIL_MV), m.hash],
+                    ['srem', getMoviesKey(REMOVED_MV), m.hash]
                 ]).exec(function(err, replies) {});
             }
         });
@@ -228,13 +241,13 @@ exports.addMovie = function(filepath) {
 exports.removeMovie = function(filepath) {
     var m = createMovieObj(filepath, false);
     if (m) {
-        var key = m.hash;
+        var key = getMovieKey(m.hash);
         var client = this.client;
         client.hmset(key, m, function(err, reply) {
             if (err == null && reply.toString().toUpperCase() == 'OK') {
                 client.multi([
-                    ['sadd', REMOVED_MV, key],
-                    ['srem', AVAIL_MV, key]
+                    ['sadd', getMoviesKey(REMOVED_MV), m.hash],
+                    ['srem', getMoviesKey(AVAIL_MV), m.hash]
                 ]).exec(function(err, replies) {});
             }   
         }); 
@@ -254,24 +267,24 @@ exports.loadMovieFromDir = function(dir) {
     var client = this.client;
     var files = listDirs(dir);
     var multi = client.multi();
-    var keys = [];
+    var hashes = [];
     for (var i = 0; i < files.length; i++) {
         var filepath = files[i];
         var m = createMovieObj(filepath, true);
-        var key = m.hash;
-        keys[keys.length] = key;
+        var key = getMovieKey(m.hash);
+        hashes[hashes.length] = m.hash;
         multi.hmset(key, m);
     }
     multi.exec(function(err, replies) {
         if (err) {
         } else {
             var multi2 = client.multi();
-            multi2.del(AVAIL_MV);
-            if (keys.length > 0) {
-                multi2.sadd(ALL_MV, keys);
-                multi2.sadd(AVAIL_MV, keys);
+            multi2.del(getMoviesKey(AVAIL_MV));
+            if (hashes.length > 0) {
+                multi2.sadd(getMoviesKey(ALL_MV), hashes);
+                multi2.sadd(getMoviesKey(AVAIL_MV), hashes);
             }
-            multi2.sdiffstore(REMOVED_MV, ALL_MV, AVAIL_MV);
+            multi2.sdiffstore(getMoviesKey(REMOVED_MV), getMoviesKey(ALL_MV), getMoviesKey(AVAIL_MV));
             multi2.exec(function(err, replies) {
                 if (err) {
                 } else {
@@ -280,7 +293,7 @@ exports.loadMovieFromDir = function(dir) {
                         } else if (reply && util.isArray(reply) && reply.length > 0) {
                             var multi3 = client.multi();
                             for (var i = 0; i < reply.length; i++) {
-                                multi3.hset(reply[i], 'available', 'false');
+                                multi3.hset(getMovieKey(reply[i]), 'available', 'false');
                             }
                             multi3.exec(function(err, replies){});
                         }
