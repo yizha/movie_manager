@@ -123,6 +123,34 @@ exports.loadMovieUsers = function(hash, callback) {
     });
 }
 
+exports.loadAllUserMovies = function(callback) {
+    if (callback && callback instanceof Function) {
+        exports.loadMarkedMovies(function(data) {
+            if (data.success) {
+                var result = {};
+                var movies = data.movies;
+                for (var i = 0; i < movies.length; i++) {
+                    var m = movies[i];
+                    var users = m.users;
+                    for (var j = 0; j < users.length; j++) {
+                        var movieArray = null;
+                        if (users[j] in result) {
+                            movieArray = result[users[j]];
+                        } else {
+                            movieArray = [];
+                            result[users[j]] = movieArray;
+                        }
+                        movieArray[movieArray.length] = m.filename;
+                    }
+                }
+                callback({'success': true, 'all_user_movies': result});
+            } else {
+                callback({'success': false, 'error': data.error, 'all_user_movies': {}});
+            }
+        });
+    }
+}
+
 exports.loadMarkedMovies = function(callback) {
     if (callback && callback instanceof Function) {
         var client = this.client;
