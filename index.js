@@ -123,6 +123,42 @@ exports.loadMovieUsers = function(hash, callback) {
     });
 }
 
+exports.loadMarkedMovies = function(callback) {
+    if (callback && callback instanceof Function) {
+        var client = this.client;
+        client.keys('movie:*:user', function(err, keys) {
+            if (err) {
+                callback({'success': false, 'error': err, 'movies': []});
+            } else {
+                if (keys && keys instanceof Array && keys.length > 0) {
+                    var multi = client.multi();
+                    for (var i = 0; i < keys.length; i++) {
+                        var idx = keys[i].lastIndexOf(':');
+                        var movieKey = keys[i].substring(0, idx);
+                        multi.hget(movieKey, 'filename');
+                        multi.smembers(keys[i]);
+                    }
+                    multi.exec(function(e, r) {
+                        if (e) {
+                            callback({'success': false, 'error': e, 'movies': []});
+                        } else {
+                            var data = [];
+                            if (r && r instanceof Array && r.length > 0) {
+                                for (var i = 0; i < r.length; i = i + 2) {
+                                    var filename = r[i];
+                                    var users = r[i + 1];
+                                    data[data.length] = {'filename': filename, 'users': users};
+                                }
+                            }
+                            callback({'success': true, 'movies': data});
+                        }
+                    });
+                }
+            }
+        });
+    }
+}
+
 exports.removeField = function(hash, field, callback) {
     var client = this.client;
     var key = getMovieKey(hash);
