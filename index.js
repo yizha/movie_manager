@@ -354,7 +354,7 @@ function addAttr(result, attr, newValue) {
 
 function formatDoubanData(data) {
     var result = {};
-    result['Plot'] = data['summary']['$t'];
+    result['Plot'] = (data['summary'] ? data['summary']['$t'] : '');
     var attrs = data['db:attribute'];
     if (attrs && attrs instanceof Array && attrs.length > 0) {
         for (var i = 0; i < attrs.length; i++) {
