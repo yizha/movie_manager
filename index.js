@@ -140,7 +140,7 @@ exports.loadAllUserMovies = function(callback) {
                             movieArray = [];
                             result[users[j]] = movieArray;
                         }
-                        movieArray[movieArray.length] = m.filename;
+                        movieArray[movieArray.length] = {'hash': m.hash, 'filename': m.filename};
                     }
                 }
                 callback({'success': true, 'all_user_movies': result});
@@ -163,7 +163,7 @@ exports.loadMarkedMovies = function(callback) {
                     for (var i = 0; i < keys.length; i++) {
                         var idx = keys[i].lastIndexOf(':');
                         var movieKey = keys[i].substring(0, idx);
-                        multi.hget(movieKey, 'filename');
+                        multi.hmget(movieKey, 'hash', 'filename');
                         multi.smembers(keys[i]);
                     }
                     multi.exec(function(e, r) {
@@ -173,9 +173,10 @@ exports.loadMarkedMovies = function(callback) {
                             var data = [];
                             if (r && r instanceof Array && r.length > 0) {
                                 for (var i = 0; i < r.length; i = i + 2) {
-                                    var filename = r[i];
+                                    var hash = r[i][0];
+                                    var filename = r[i][1];
                                     var users = r[i + 1];
-                                    data[data.length] = {'filename': filename, 'users': users};
+                                    data[data.length] = {'hash': hash, 'filename': filename, 'users': users};
                                 }
                             }
                             callback({'success': true, 'movies': data});
