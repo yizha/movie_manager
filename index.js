@@ -292,6 +292,18 @@ function to_content_obj(output) {
     return {'files': files, 'size': totalSize};
 }
 
+function formatIMDBData(data) {
+    data['url'] = 'http://www.imdb.com/title/' + data['imdbID'] + '/';
+    data['id'] = data['imdbID'];
+    data['Votes'] = data['imdbVotes'];
+    data['Rating'] = data['imdbRating'];
+    delete data['imdbID'];
+    delete data['imdbVotes'];
+    delete data['imdbRating'];
+    delete data['Response'];
+    return data;
+}
+
 exports.setIMDB = function(hash, qsObj, image_save_root, callback) {
     var client = this.client;
     var options = {
@@ -301,16 +313,23 @@ exports.setIMDB = function(hash, qsObj, image_save_root, callback) {
     http.get(options, function(res) {
         if (res.statusCode == 200) {
             res.setEncoding('utf8');
+            var jsonStr = '';
             res.on('data', function(chunk) {
-                var data = JSON.parse(chunk);
+                jsonStr += chunk;
+            });
+            res.on('end', function() {
+                var data = JSON.parse(jsonStr);
                 if (data 
                     && data.Response 
                     && data.Response.toString().toLowerCase() == 'true') {
-                        var key = getMovieKey(hash);
-                        client.hset(key, 'imdb', JSON.stringify(data), function(err, reply) {
+                        var imdb = formatIMDBData(data);
+                        client.hset(getMovieKey(hash), 'imdb', JSON.stringify(imdb), function(err, reply) {
                             if (err) {
                             } else {
-                                var poster = data['Poster'];
+                                // set douban data 
+                                setDoubanData(client, hash, imdb['id'], null); 
+                                // download poster image
+                                var poster = imdb['Poster'];
                                 if (poster && typeof poster == 'string' 
                                     && poster.indexOf('http://') == 0) {
                                     exports.downloadPoster(hash, 
@@ -323,6 +342,80 @@ exports.setIMDB = function(hash, qsObj, image_save_root, callback) {
             });
         }
     }); 
+}
+
+function addAttr(result, attr, newValue) {
+    if (attr in result) {
+        result[attr] = result[attr] + ' / ' + newValue;
+    } else {
+        result[attr] = newValue;
+    }
+}
+
+function formatDoubanData(data) {
+    var result = {};
+    result['Plot'] = data['summary']['$t'];
+    var attrs = data['db:attribute'];
+    if (attrs && attrs instanceof Array && attrs.length > 0) {
+        for (var i = 0; i < attrs.length; i++) {
+            var name = attrs[i]['@name'];
+            var t = attrs[i]['$t'];
+            var lang = attrs[i]['@lang'];
+            if (name == 'movie_duration') {
+                result['Runtime'] = t;
+            } else if (name == 'writer') {
+                addAttr(result, 'Writer', t);
+            } else if (name == 'director') {
+                addAttr(result, 'Director', t);
+            } else if (name == 'pubdate') {
+                result['Released'] = t;
+            } else if (name == 'aka' && lang == 'zh_CN') {
+                result['Title'] = t;
+            } else if (name == 'movie_type') {
+                addAttr(result, 'Genre', t);
+            } else if (name == 'cast') {
+                addAttr(result, 'Actors', t);
+            }
+        }
+    }
+    var rating = data['gd:rating'];
+    if (rating && typeof rating === 'object') {
+        result['Votes'] = rating['@numRaters'] + '';
+        result['Rating'] = rating['@average'];
+    }
+    result['id'] = path.basename(data['id']['$t']);
+    result['url'] = 'http://movie.douban.com/subject/' + result['id'] + '/';
+    return result;
+}
+
+function setDoubanData(client, hash, imdbID, callback) {
+    var options = {
+        host: 'api.douban.com',
+        path: '/movie/subject/imdb/' + imdbID + '?' + qs.stringify({
+            apikey: '0841eac1af6041aa18c5c0450e20c4fe',
+            alt: 'json'
+        })
+    };
+    http.get(options, function(res) {
+        if (res.statusCode == 200) {
+            res.setEncoding('utf8');
+            var jsonStr = '';
+            res.on('data', function(chunk) {
+                jsonStr += chunk;
+            });
+            res.on('end', function() {
+                var data = JSON.parse(jsonStr);
+                if (data && typeof data === 'object') {
+                    var douban = formatDoubanData(data);
+                    if (callback && callback instanceof Function) {
+                        client.hset(getMovieKey(hash), 'douban', JSON.stringify(douban), callback);
+                    } else {
+                        client.hset(getMovieKey(hash), 'douban', JSON.stringify(douban));
+                    }
+                }
+            });
+        }
+    });
 }
 
 exports.listAllMovies = function(callback) {
@@ -533,7 +626,9 @@ function to_frontend_movie(m) {
     }
     if (m['imdb']) {
         m['imdb'] = JSON.parse(m['imdb']);
-        delete m['imdb']['Response'];
+    }
+    if (m['douban']) {
+        m['douban'] = JSON.parse(m['douban']);
     }
     return m;
 }
