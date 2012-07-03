@@ -466,7 +466,13 @@ exports.listMovies = function(type, callback) {
                         } else {
                             movies = to_frontend_movies(movies);
                             movies.sort(function(a, b) {
-                                return a.filename.localeCompare(b.filename);
+                                if (a.timestamp && b.timestamp) {
+                                    var ts_a = parseInt(a.timestamp);
+                                    var ts_b = parseInt(b.timestamp);
+                                    return ts_a < ts_b;
+                                } else {
+                                    return a.filename.localeCompare(b.filename);
+                                }
                             });
                             reply = {'success': true, 'movies': movies};
                         }
@@ -605,6 +611,7 @@ function createMovieObj(filepath, avail) {
     m['fullpath'] = filepath;
     m['filename'] = filename;
     m['available'] = avail;
+    m['timestamp'] = (new Date()).getTime();
     return m;
 }
 
