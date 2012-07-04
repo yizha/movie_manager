@@ -469,7 +469,7 @@ exports.listMovies = function(type, callback) {
                                 if (a.timestamp && b.timestamp) {
                                     var ts_a = parseInt(a.timestamp);
                                     var ts_b = parseInt(b.timestamp);
-                                    return ts_a < ts_b;
+                                    return ts_b - ts_a;
                                 } else {
                                     return a.filename.localeCompare(b.filename);
                                 }
@@ -485,7 +485,7 @@ exports.listMovies = function(type, callback) {
 }
 
 exports.addMovie = function(filepath) {
-    var m = createMovieObj(filepath, true);
+    var m = createMovieObj(filepath, true, (new Date()).getTime());
     if (m) {
         var key = getMovieKey(m.hash);
         var client = this.client;
@@ -604,14 +604,16 @@ function getHash(Str) {
                  .digest('hex');
 }
 
-function createMovieObj(filepath, avail) {
+function createMovieObj(filepath, avail, ts) {
     var filename = path.basename(filepath);
     var m = {};
     m['hash'] = getHash(filename);
     m['fullpath'] = filepath;
     m['filename'] = filename;
     m['available'] = avail;
-    m['timestamp'] = (new Date()).getTime();
+    if (ts && typeof ts === 'number') {
+        m['timestamp'] = ts;
+    }
     return m;
 }
 
