@@ -182,6 +182,8 @@ exports.loadMarkedMovies = function(callback) {
                             callback({'success': true, 'movies': data});
                         }
                     });
+                } else {
+                    callback({'success': true, 'movies': []});
                 }
             }
         });
